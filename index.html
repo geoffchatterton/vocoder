@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>64-Band Vocoder</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            color: white;
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .upload-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .file-upload {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px dashed rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .file-upload:hover {
+            border-color: rgba(255, 255, 255, 0.6);
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .file-upload input[type="file"] {
+            display: none;
+        }
+        
+        .file-upload label {
+            cursor: pointer;
+            display: block;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            transition: background 0.3s ease;
+        }
+        
+        .file-upload label:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .control-group {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+        }
+        
+        .control-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .control-group input, .control-group select {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            box-sizing: border-box;
+        }
+        
+        .control-group input::placeholder {
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+        
+        button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        button:disabled {
+            background: rgba(255, 255, 255, 0.3);
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status {
+            text-align: center;
+            margin: 20px 0;
+            padding: 10px;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .visualizer {
+            height: 200px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            margin-top: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        canvas {
+            width: 100%;
+            height: 100%;
+            border-radius: 10px;
+        }
+        
+        .filename {
+            font-size: 0.9em;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>64-Band Vocoder</h1>
+        
+        <div class="upload-section">
+            <div class="file-upload">
+                <label for="carrierFile">
+                    📁 Upload Carrier File
+                    <div class="filename" id="carrierFilename">No file selected</div>
+                </label>
+                <input type="file" id="carrierFile" accept="audio/*">
+            </div>
+            
+            <div class="file-upload">
+                <label for="modulatorFile">
+                    📁 Upload Modulator File
+                    <div class="filename" id="modulatorFilename">No file selected</div>
+                </label>
+                <input type="file" id="modulatorFile" accept="audio/*">
+            </div>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label for="bandOffset">Band Offset (0-64)</label>
+                <input type="range" id="bandOffset" min="0" max="64" value="0">
+                <span id="offsetValue">0</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="mixLevel">Mix Level</label>
+                <input type="range" id="mixLevel" min="0" max="1" step="0.01" value="1">
+                <span id="mixValue">1.00</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="modulatorMix">Modulator Mix</label>
+                <input type="range" id="modulatorMix" min="0" max="0.5" step="0.01" value="0">
+                <span id="modMixValue">0.00</span>
+            </div>
+            
+            <div class="control-group">
+                <label for="outputGain">Output Gain</label>
+                <input type="range" id="outputGain" min="0" max="2" step="0.01" value="0.5">
+                <span id="gainValue">0.50</span>
+            </div>
+        </div>
+        
+        <div class="buttons">
+            <button id="playBtn" disabled>▶ Play Vocoder</button>
+            <button id="stopBtn" disabled>⏹ Stop</button>
+        </div>
+        
+        <div class="status" id="status">Upload carrier and modulator files to begin</div>
+        
+        <div class="visualizer">
+            <canvas id="visualizer"></canvas>
+        </div>
+    </div>
+
+    <script>
+        class Vocoder {
+            constructor() {
+                this.audioContext = null;
+                this.carrierBuffer = null;
+                this.modulatorBuffer = null;
+                this.carrierSource = null;
+                this.modulatorSource = null;
+                this.analyser = null;
+                this.isPlaying = false;
+                this.bandOffset = 0;
+                this.mixLevel = 1;
+                this.outputGain = 0.5;
+                this.modulatorMix = 0;
+                
+                this.setupEventListeners();
+                this.setupVisualizer();
+            }
+            
+            async initAudioContext() {
+                if (!this.audioContext) {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    if (this.audioContext.state === 'suspended') {
+                        await this.audioContext.resume();
+                    }
+                }
+            }
+            
+            setupEventListeners() {
+                document.getElementById('carrierFile').addEventListener('change', (e) => {
+                    this.loadAudioFile(e.target.files[0], 'carrier');
+                });
+                
+                document.getElementById('modulatorFile').addEventListener('change', (e) => {
+                    this.loadAudioFile(e.target.files[0], 'modulator');
+                });
+                
+                document.getElementById('playBtn').addEventListener('click', () => {
+                    this.play();
+                });
+                
+                document.getElementById('stopBtn').addEventListener('click', () => {
+                    this.stop();
+                });
+                
+                document.getElementById('bandOffset').addEventListener('input', (e) => {
+                    this.bandOffset = parseInt(e.target.value);
+                    document.getElementById('offsetValue').textContent = this.bandOffset;
+                });
+                
+                document.getElementById('mixLevel').addEventListener('input', (e) => {
+                    this.mixLevel = parseFloat(e.target.value);
+                    document.getElementById('mixValue').textContent = this.mixLevel.toFixed(2);
+                });
+                
+                document.getElementById('modulatorMix').addEventListener('input', (e) => {
+                    this.modulatorMix = parseFloat(e.target.value);
+                    document.getElementById('modMixValue').textContent = this.modulatorMix.toFixed(2);
+                    if (this.modulatorGain) {
+                        this.modulatorGain.gain.value = this.modulatorMix;
+                    }
+                });
+                
+                document.getElementById('outputGain').addEventListener('input', (e) => {
+                    this.outputGain = parseFloat(e.target.value);
+                    document.getElementById('gainValue').textContent = this.outputGain.toFixed(2);
+                    if (this.gainNode) {
+                        this.gainNode.gain.value = this.outputGain;
+                    }
+                });
+            }
+            
+            async loadAudioFile(file, type) {
+                if (!file) return;
+                
+                await this.initAudioContext();
+                
+                const arrayBuffer = await file.arrayBuffer();
+                const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+                
+                if (type === 'carrier') {
+                    this.carrierBuffer = audioBuffer;
+                    document.getElementById('carrierFilename').textContent = file.name;
+                } else if (type === 'modulator') {
+                    this.modulatorBuffer = audioBuffer;
+                    document.getElementById('modulatorFilename').textContent = file.name;
+                }
+                
+                this.updateStatus();
+                this.updatePlayButton();
+            }
+            
+            updateStatus() {
+                const status = document.getElementById('status');
+                if (this.carrierBuffer && this.modulatorBuffer) {
+                    status.textContent = 'Ready to play vocoder';
+                } else if (this.carrierBuffer) {
+                    status.textContent = 'Carrier loaded - upload modulator file';
+                } else if (this.modulatorBuffer) {
+                    status.textContent = 'Modulator loaded - upload carrier file';
+                } else {
+                    status.textContent = 'Upload carrier and modulator files to begin';
+                }
+            }
+            
+            updatePlayButton() {
+                const playBtn = document.getElementById('playBtn');
+                playBtn.disabled = !(this.carrierBuffer && this.modulatorBuffer);
+            }
+            
+            async play() {
+                if (this.isPlaying) return;
+                
+                await this.initAudioContext();
+                this.createVocoderChain();
+                
+                this.isPlaying = true;
+                document.getElementById('playBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                document.getElementById('status').textContent = 'Playing vocoder...';
+            }
+            
+            createVocoderChain() {
+                // Create sources
+                this.carrierSource = this.audioContext.createBufferSource();
+                this.modulatorSource = this.audioContext.createBufferSource();
+                this.carrierSource.buffer = this.carrierBuffer;
+                this.modulatorSource.buffer = this.modulatorBuffer;
+                this.carrierSource.loop = true;
+                
+                // Create main output gain and analyzer
+                this.gainNode = this.audioContext.createGain();
+                this.gainNode.gain.value = this.outputGain;
+                this.analyser = this.audioContext.createAnalyser();
+                this.analyser.fftSize = 256;
+                
+                // Create analyzers for frequency analysis
+                const modulatorAnalyzer = this.audioContext.createAnalyser();
+                modulatorAnalyzer.fftSize = 512; // Higher resolution for better speech analysis
+                modulatorAnalyzer.smoothingTimeConstant = 0.3; // Less smoothing for faster response
+                modulatorAnalyzer.minDecibels = -60;
+                modulatorAnalyzer.maxDecibels = -10;
+                
+                // Connect modulator to its analyzer
+                this.modulatorSource.connect(modulatorAnalyzer);
+                
+                // Create controllable modulator mix path
+                this.modulatorGain = this.audioContext.createGain();
+                this.modulatorGain.gain.value = this.modulatorMix; // Start with current mix level
+                this.modulatorSource.connect(this.modulatorGain);
+                
+                // Create gain nodes for each frequency band
+                this.bandGains = [];
+                const mixNode = this.audioContext.createGain();
+                mixNode.gain.value = 0.7; // Slightly higher mix level
+                
+                // Create a full 64-band vocoder
+                const numBands = 64;
+                const filters = [];
+                
+                // Frequency range: 80Hz to 8000Hz (logarithmic spacing)
+                const minFreq = 80;
+                const maxFreq = 8000;
+                
+                for (let i = 0; i < numBands; i++) {
+                    // Logarithmic frequency distribution for better perceptual spacing
+                    const logMin = Math.log(minFreq);
+                    const logMax = Math.log(maxFreq);
+                    const freqRatio = i / (numBands - 1);
+                    const centerFreq = Math.exp(logMin + freqRatio * (logMax - logMin));
+                    const bandwidth = centerFreq * 0.25; // 25% bandwidth
+                    
+                    const lowFreq = Math.max(centerFreq - bandwidth / 2, 20);
+                    const highFreq = Math.min(centerFreq + bandwidth / 2, this.audioContext.sampleRate / 2);
+                    
+                    // Create bandpass filter for carrier
+                    const highpass = this.audioContext.createBiquadFilter();
+                    highpass.type = 'highpass';
+                    highpass.frequency.value = lowFreq;
+                    highpass.Q.value = 0.7;
+                    
+                    const lowpass = this.audioContext.createBiquadFilter();
+                    lowpass.type = 'lowpass';
+                    lowpass.frequency.value = highFreq;
+                    lowpass.Q.value = 0.7;
+                    
+                    // Chain filters
+                    highpass.connect(lowpass);
+                    
+                    // Create gain node controlled by modulator
+                    const bandGain = this.audioContext.createGain();
+                    bandGain.gain.value = 0;
+                    
+                    // Connect carrier through filter and gain
+                    this.carrierSource.connect(highpass);
+                    lowpass.connect(bandGain);
+                    bandGain.connect(mixNode);
+                    
+                    this.bandGains.push(bandGain);
+                    filters.push({highpass, lowpass, centerFreq});
+                }
+                
+                // Connect the controllable modulator mix to the output
+                this.modulatorGain.connect(mixNode);
+                
+                // Connect output chain
+                mixNode.connect(this.gainNode);
+                this.gainNode.connect(this.analyser);
+                this.analyser.connect(this.audioContext.destination);
+                
+                // Start sources
+                this.carrierSource.start();
+                this.modulatorSource.start();
+                
+                // Enhanced envelope following function
+                const updateEnvelopes = () => {
+                    if (!this.isPlaying) return;
+                    
+                    const freqData = new Uint8Array(modulatorAnalyzer.frequencyBinCount);
+                    modulatorAnalyzer.getByteFrequencyData(freqData);
+                    
+                    // Calculate overall signal level for noise gate
+                    let totalLevel = 0;
+                    for (let i = 0; i < freqData.length; i++) {
+                        totalLevel += freqData[i];
+                    }
+                    totalLevel = totalLevel / freqData.length / 255;
+                    
+                    // Noise gate threshold
+                    const noiseGate = totalLevel > 0.05 ? 1 : Math.max(totalLevel * 20, 0.1);
+                    
+                    // Map frequency bins to vocoder bands with improved envelope following
+                    for (let i = 0; i < numBands && i < this.bandGains.length; i++) {
+                        // Map to multiple frequency bins for better resolution
+                        const startBin = Math.floor((i / numBands) * freqData.length);
+                        const endBin = Math.min(Math.floor(((i + 1) / numBands) * freqData.length), freqData.length - 1);
+                        
+                        // Calculate RMS level across the band
+                        let bandLevel = 0;
+                        for (let bin = startBin; bin <= endBin; bin++) {
+                            const level = freqData[bin] / 255;
+                            bandLevel += level * level; // RMS calculation
+                        }
+                        bandLevel = Math.sqrt(bandLevel / (endBin - startBin + 1));
+                        
+                        // Apply band offset mapping: modulator band i controls carrier band (i + offset) % numBands
+                        const targetBand = (i + this.bandOffset) % numBands;
+                        
+                        if (targetBand < this.bandGains.length) {
+                            // Enhanced envelope shaping for speech
+                            let targetGain = bandLevel;
+                            
+                            // Compress dynamics for better speech intelligibility
+                            targetGain = Math.pow(targetGain, 0.6); // Compression
+                            
+                            // Apply noise gate
+                            targetGain *= noiseGate;
+                            
+                            // Scale and apply mix level
+                            targetGain = targetGain * this.mixLevel * 1.2;
+                            
+                            // Limit maximum gain
+                            targetGain = Math.min(targetGain, 1.0);
+                            
+                            // Faster response for speech transients
+                            const rampTime = bandLevel > this.bandGains[targetBand].gain.value ? 0.005 : 0.015;
+                            
+                            this.bandGains[targetBand].gain.linearRampToValueAtTime(
+                                targetGain,
+                                this.audioContext.currentTime + rampTime
+                            );
+                        }
+                    }
+                    
+                    setTimeout(updateEnvelopes, 10); // Faster update rate for speech
+                };
+                
+                // Start envelope following
+                setTimeout(updateEnvelopes, 100);
+                
+                // Handle modulator end
+                this.modulatorSource.onended = () => {
+                    if (this.isPlaying) this.restartModulator();
+                };
+                
+                // Store references
+                this.modulatorAnalyzer = modulatorAnalyzer;
+                this.mixNode = mixNode;
+                this.filters = filters;
+                
+                console.log(`Created ${numBands}-band vocoder with logarithmic frequency spacing`);
+                console.log(`Frequency range: ${minFreq}Hz - ${maxFreq}Hz`);
+                
+                // No test this time - let the real vocoder work
+                setTimeout(() => {
+                    console.log('64-band vocoder active - band offset:', this.bandOffset);
+                }, 1000);
+            }
+            
+            restartModulator() {
+                const newModulator = this.audioContext.createBufferSource();
+                newModulator.buffer = this.modulatorBuffer;
+                newModulator.connect(this.modulatorAnalyzer);
+                newModulator.connect(this.modulatorGain); // Connect to both analyzer and mix
+                newModulator.start();
+                newModulator.onended = () => {
+                    if (this.isPlaying) this.restartModulator();
+                };
+                this.modulatorSource = newModulator;
+            }
+            
+            stop() {
+                if (!this.isPlaying) return;
+                
+                if (this.carrierSource) {
+                    this.carrierSource.stop();
+                    this.carrierSource = null;
+                }
+                
+                if (this.modulatorSource) {
+                    this.modulatorSource.stop();
+                    this.modulatorSource = null;
+                }
+                
+                if (this.mixNode) {
+                    this.mixNode.disconnect();
+                    this.mixNode = null;
+                }
+                
+                if (this.bandGains) {
+                    this.bandGains.forEach(gain => gain.disconnect());
+                    this.bandGains = null;
+                }
+                
+                if (this.filters) {
+                    this.filters.forEach(filter => {
+                        filter.highpass.disconnect();
+                        filter.lowpass.disconnect();
+                    });
+                    this.filters = null;
+                }
+                
+                this.isPlaying = false;
+                document.getElementById('playBtn').disabled = false;
+                document.getElementById('stopBtn').disabled = true;
+                document.getElementById('status').textContent = 'Stopped';
+            }
+            
+            setupVisualizer() {
+                this.canvas = document.getElementById('visualizer');
+                this.canvasCtx = this.canvas.getContext('2d');
+                
+                const resizeCanvas = () => {
+                    this.canvas.width = this.canvas.clientWidth;
+                    this.canvas.height = this.canvas.clientHeight;
+                };
+                
+                resizeCanvas();
+                window.addEventListener('resize', resizeCanvas);
+                this.draw();
+            }
+            
+            draw() {
+                requestAnimationFrame(() => this.draw());
+                
+                if (!this.analyser) {
+                    this.canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                    this.canvasCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    return;
+                }
+                
+                const bufferLength = this.analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                this.analyser.getByteFrequencyData(dataArray);
+                
+                this.canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                this.canvasCtx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                const barWidth = this.canvas.width / 64;
+                let x = 0;
+                
+                for (let i = 0; i < 64; i++) {
+                    const barHeight = (dataArray[i] / 255) * this.canvas.height;
+                    
+                    const gradient = this.canvasCtx.createLinearGradient(0, this.canvas.height - barHeight, 0, this.canvas.height);
+                    gradient.addColorStop(0, `hsl(${i * 5.6}, 70%, 60%)`);
+                    gradient.addColorStop(1, `hsl(${i * 5.6}, 70%, 30%)`);
+                    
+                    this.canvasCtx.fillStyle = gradient;
+                    this.canvasCtx.fillRect(x, this.canvas.height - barHeight, barWidth - 1, barHeight);
+                    
+                    x += barWidth;
+                }
+            }
+        }
+        
+        // Initialize vocoder
+        const vocoder = new Vocoder();
+    </script>
+</body>
+</html>
