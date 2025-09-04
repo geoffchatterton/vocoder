@@ -120,6 +120,11 @@
             background: rgba(255, 200, 100, 0.15);
             border: 1px solid rgba(255, 200, 100, 0.3);
         }
+
+        .control-group.highlight-filter {
+            background: rgba(100, 200, 255, 0.15);
+            border: 1px solid rgba(100, 200, 255, 0.3);
+        }
         
         .buttons {
             display: flex;
@@ -253,6 +258,16 @@
                     <span class="control-value" id="modMixValue">0.00</span>
                 </label>
                 <input type="range" id="modulatorMix" min="0" max="0.5" step="0.01" value="0">
+                <div class="info-text">Mix in high-pass filtered modulator</div>
+            </div>
+
+            <div class="control-group highlight-filter">
+                <label for="highPassCutoff">
+                    High-Pass Cutoff (Hz)
+                    <span class="control-value" id="highPassValue">100</span>
+                </label>
+                <input type="range" id="highPassCutoff" min="20" max="8000" value="100">
+                <div class="info-text">Filter cutoff for modulator mix only</div>
             </div>
             
             <div class="control-group">
@@ -299,6 +314,7 @@
                 this.mixLevel = 1;
                 this.outputGain = 0.5;
                 this.modulatorMix = 0;
+                this.highPassCutoff = 100;
                 
                 this.setupEventListeners();
                 this.setupVisualizers();
@@ -352,6 +368,14 @@
                     document.getElementById('modMixValue').textContent = this.modulatorMix.toFixed(2);
                     if (this.modulatorGain) {
                         this.modulatorGain.gain.value = this.modulatorMix;
+                    }
+                });
+
+                document.getElementById('highPassCutoff').addEventListener('input', (e) => {
+                    this.highPassCutoff = parseInt(e.target.value);
+                    document.getElementById('highPassValue').textContent = this.highPassCutoff;
+                    if (this.highPassFilter) {
+                        this.highPassFilter.frequency.value = this.highPassCutoff;
                     }
                 });
                 
@@ -438,13 +462,22 @@
                 // Store for visualization
                 this.modulatorAnalyzer = modulatorAnalyzer;
                 
-                // Connect modulator to its analyzer
+                // Connect modulator to its analyzer (unfiltered for vocoding)
                 this.modulatorSource.connect(modulatorAnalyzer);
                 
-                // Create controllable modulator mix path
+                // Create HIGH-PASS FILTER for modulator mix path only
+                this.highPassFilter = this.audioContext.createBiquadFilter();
+                this.highPassFilter.type = 'highpass';
+                this.highPassFilter.frequency.value = this.highPassCutoff;
+                this.highPassFilter.Q.value = 0.707; // Butterworth response
+                
+                // Create controllable modulator mix gain
                 this.modulatorGain = this.audioContext.createGain();
                 this.modulatorGain.gain.value = this.modulatorMix;
-                this.modulatorSource.connect(this.modulatorGain);
+                
+                // Connect modulator through high-pass filter to mix gain
+                this.modulatorSource.connect(this.highPassFilter);
+                this.highPassFilter.connect(this.modulatorGain);
                 
                 // Create gain nodes for each frequency band (64 carrier bands)
                 this.bandGains = [];
@@ -497,7 +530,7 @@
                     filters.push({highpass, lowpass, centerFreq});
                 }
                 
-                // Connect the controllable modulator mix to the output
+                // Connect the high-pass filtered modulator mix to the output
                 this.modulatorGain.connect(mixNode);
                 
                 // Connect output chain
@@ -513,7 +546,7 @@
                 const updateEnvelopes = () => {
                     if (!this.isPlaying) return;
                     
-                    // Get 128 bins of frequency data from modulator
+                    // Get 128 bins of frequency data from UNFILTERED modulator
                     const freqData = new Uint8Array(128);
                     const fullFreqData = new Uint8Array(modulatorAnalyzer.frequencyBinCount);
                     modulatorAnalyzer.getByteFrequencyData(fullFreqData);
@@ -589,14 +622,20 @@
                 
                 console.log(`Created vocoder with 128-bin modulator analysis and 64 carrier bands`);
                 console.log(`Using modulator bins ${this.modulatorStartBin} to ${this.modulatorStartBin + 63}`);
+                console.log(`High-pass filter cutoff: ${this.highPassCutoff}Hz (for mix only)`);
                 console.log(`Frequency range: ${minFreq}Hz - ${maxFreq}Hz`);
             }
             
             restartModulator() {
                 const newModulator = this.audioContext.createBufferSource();
                 newModulator.buffer = this.modulatorBuffer;
+                
+                // Connect to analyzer for unfiltered analysis
                 newModulator.connect(this.modulatorAnalyzer);
-                newModulator.connect(this.modulatorGain);
+                
+                // Connect through high-pass filter for mix
+                newModulator.connect(this.highPassFilter);
+                
                 newModulator.start();
                 newModulator.onended = () => {
                     if (this.isPlaying) this.restartModulator();
@@ -633,6 +672,16 @@
                         filter.lowpass.disconnect();
                     });
                     this.filters = null;
+                }
+
+                if (this.highPassFilter) {
+                    this.highPassFilter.disconnect();
+                    this.highPassFilter = null;
+                }
+
+                if (this.modulatorGain) {
+                    this.modulatorGain.disconnect();
+                    this.modulatorGain = null;
                 }
                 
                 this.isPlaying = false;
